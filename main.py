@@ -14,7 +14,10 @@ app = FastAPI()
 # --- Homepage Route ---
 @app.get("/")
 def home():
-    return {"message": "Welcome to Crypto Predictor API. Use /predict?coin=bitcoin"}
+    return {
+        "message": "✅ Welcome to Crypto Predictor API!",
+        "usage": "Use /predict?coin=bitcoin"
+    }
 
 # --- Hybrid Model Definition ---
 class HybridModel(nn.Module):
@@ -38,17 +41,16 @@ def predict(coin: str = Query(..., description="e.g. bitcoin, ethereum, solana, 
     try:
         url = f"https://api.coingecko.com/api/v3/coins/{coin}/market_chart?vs_currency=usd&days=1"
         response = requests.get(url)
-        
-        # 🔐 Handle rate limit error
+
         if response.status_code == 429:
-            return {"error": "CoinGecko rate limit exceeded. Please wait and try again later."}
+            return {"error": "🚫 CoinGecko rate limit exceeded. Please wait or upgrade to a paid plan."}
 
         if response.status_code != 200:
-            return {"error": f"Failed to fetch data: {response.text}"}
+            return {"error": f"Failed to fetch data from CoinGecko: {response.text}"}
 
         data = response.json().get("prices", [])
         if len(data) < 60:
-            return {"error": "Not enough data to predict"}
+            return {"error": "Not enough historical data for prediction."}
 
         df = pd.DataFrame(data, columns=["timestamp", "price"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
@@ -66,7 +68,7 @@ def predict(coin: str = Query(..., description="e.g. bitcoin, ethereum, solana, 
         predictions = []
         with torch.no_grad():
             current_seq = X.clone()
-            for _ in range(30):  # predict 30 mins ahead
+            for _ in range(30):  # 30-minute ahead prediction
                 pred = model(current_seq).item()
                 predictions.append(pred)
                 new_input = torch.tensor([[[pred]]], dtype=torch.float32)
@@ -87,8 +89,8 @@ def predict(coin: str = Query(..., description="e.g. bitcoin, ethereum, solana, 
     except Exception as e:
         return {"error": str(e)}
 
-# --- Entry Point ---
+# --- Entry Point (only used for local testing) ---
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 10000))  # Required for Render
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
