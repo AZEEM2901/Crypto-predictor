@@ -45,21 +45,21 @@ def predict(coin: str = Query(None, description="Cryptocurrency coin, e.g. bitco
         return cache[coin]['data']
 
     try:
-        url = f"https://api.coingecko.com/api/v3/coins/{coin}/market_chart?vs_currency=usd&days=1"
+        # CoinCap expects coin IDs like 'bitcoin', 'ethereum', etc.
+        url = f"https://api.coincap.io/v2/assets/{coin}/history?interval=m1"
         response = requests.get(url)
-
-        if response.status_code == 429:
-            return {"error": "CoinGecko rate limit exceeded. Please wait and try again later."}
 
         if response.status_code != 200:
             return {"error": f"Failed to fetch data: {response.text}"}
 
-        data = response.json().get("prices", [])
+        data = response.json().get("data", [])
         if len(data) < 60:
             return {"error": "Not enough data to predict"}
 
-        df = pd.DataFrame(data, columns=["timestamp", "price"])
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+        # CoinCap returns list of dict with "priceUsd" and "time"
+        df = pd.DataFrame(data)
+        df["timestamp"] = pd.to_datetime(df["time"], unit='ms')
+        df["price"] = df["priceUsd"].astype(float)
 
         prices = df["price"].values.reshape(-1, 1)
         scaler = MinMaxScaler()
