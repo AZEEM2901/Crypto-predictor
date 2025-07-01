@@ -11,6 +11,11 @@ import os
 # --- FastAPI App ---
 app = FastAPI()
 
+# --- Homepage Route ---
+@app.get("/")
+def home():
+    return {"message": "Welcome to Crypto Predictor API. Use /predict?coin=bitcoin"}
+
 # --- Hybrid Model Definition ---
 class HybridModel(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers=2, nhead=2):
@@ -27,12 +32,17 @@ class HybridModel(nn.Module):
         output = self.fc(transformer_out[-1])
         return output
 
-# --- API Route ---
+# --- Prediction Route ---
 @app.get("/predict")
 def predict(coin: str = Query(..., description="e.g. bitcoin, ethereum, solana, cardano")):
     try:
         url = f"https://api.coingecko.com/api/v3/coins/{coin}/market_chart?vs_currency=usd&days=1"
         response = requests.get(url)
+        
+        # 🔐 Handle rate limit error
+        if response.status_code == 429:
+            return {"error": "CoinGecko rate limit exceeded. Please wait and try again later."}
+
         if response.status_code != 200:
             return {"error": f"Failed to fetch data: {response.text}"}
 
