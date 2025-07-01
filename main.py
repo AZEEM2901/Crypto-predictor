@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from sklearn.preprocessing import MinMaxScaler
 from datetime import datetime, timedelta
+import os
 
 # --- FastAPI App ---
 app = FastAPI()
@@ -75,9 +76,9 @@ def predict(coin: str = Query(..., description="e.g. bitcoin, ethereum, solana, 
 
     except Exception as e:
         return {"error": str(e)}
-import os
 
+# --- Entry Point ---
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 10000))  # Default to 10000 for Render
+    port = int(os.environ.get("PORT", 10000))  # Required for Render
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
