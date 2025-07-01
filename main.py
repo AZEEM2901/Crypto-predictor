@@ -6,20 +6,15 @@ import torch
 import torch.nn as nn
 from sklearn.preprocessing import MinMaxScaler
 from datetime import datetime, timedelta
+import time
 import os
 
-# --- FastAPI App ---
 app = FastAPI()
 
-# --- Homepage Route ---
-@app.get("/")
-def home():
-    return {
-        "message": "✅ Welcome to Crypto Predictor API!",
-        "usage": "Use /predict?coin=bitcoin"
-    }
+# Cache dictionary and TTL (time to live) in seconds
+cache = {}
+CACHE_TTL = 25 * 60  # 25 minutes
 
-# --- Hybrid Model Definition ---
 class HybridModel(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers=2, nhead=2):
         super(HybridModel, self).__init__()
@@ -35,22 +30,33 @@ class HybridModel(nn.Module):
         output = self.fc(transformer_out[-1])
         return output
 
-# --- Prediction Route ---
+@app.get("/")
+def home():
+    return {"message": "Welcome to Crypto Predictor API. Use /predict?coin=bitcoin"}
+
 @app.get("/predict")
-def predict(coin: str = Query(..., description="e.g. bitcoin, ethereum, solana, cardano")):
+def predict(coin: str = Query(None, description="Cryptocurrency coin, e.g. bitcoin, ethereum, solana, cardano")):
+    if not coin:
+        return {"error": "Please specify a coin using the 'coin' query parameter, e.g. /predict?coin=bitcoin"}
+
+    now = time.time()
+    # Check cache for requested coin
+    if coin in cache and now - cache[coin]['timestamp'] < CACHE_TTL:
+        return cache[coin]['data']
+
     try:
         url = f"https://api.coingecko.com/api/v3/coins/{coin}/market_chart?vs_currency=usd&days=1"
         response = requests.get(url)
 
         if response.status_code == 429:
-            return {"error": "🚫 CoinGecko rate limit exceeded. Please wait or upgrade to a paid plan."}
+            return {"error": "CoinGecko rate limit exceeded. Please wait and try again later."}
 
         if response.status_code != 200:
-            return {"error": f"Failed to fetch data from CoinGecko: {response.text}"}
+            return {"error": f"Failed to fetch data: {response.text}"}
 
         data = response.json().get("prices", [])
         if len(data) < 60:
-            return {"error": "Not enough historical data for prediction."}
+            return {"error": "Not enough data to predict"}
 
         df = pd.DataFrame(data, columns=["timestamp", "price"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
@@ -68,7 +74,7 @@ def predict(coin: str = Query(..., description="e.g. bitcoin, ethereum, solana, 
         predictions = []
         with torch.no_grad():
             current_seq = X.clone()
-            for _ in range(30):  # 30-minute ahead prediction
+            for _ in range(30):  # predict 30 mins ahead
                 pred = model(current_seq).item()
                 predictions.append(pred)
                 new_input = torch.tensor([[[pred]]], dtype=torch.float32)
@@ -79,18 +85,25 @@ def predict(coin: str = Query(..., description="e.g. bitcoin, ethereum, solana, 
         last_time = df["timestamp"].iloc[-1]
         pred_time = last_time + timedelta(minutes=30)
 
-        return {
+        result = {
             "coin": coin,
             "current_price": round(current_price, 2),
             "predicted_price_30min": round(predicted_price, 2),
             "prediction_time": pred_time.strftime("%Y-%m-%d %H:%M:%S")
         }
 
+        # Save to cache
+        cache[coin] = {
+            "timestamp": now,
+            "data": result
+        }
+
+        return result
+
     except Exception as e:
         return {"error": str(e)}
 
-# --- Entry Point (only used for local testing) ---
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 10000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port)
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
